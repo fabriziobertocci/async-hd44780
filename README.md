@@ -17,4 +17,23 @@ npm install async-hd44780
 ```
 
 ## Usage
-[TODO]
+Example:
+```
+var async = require('async');
+var lcd = require('async-hd44780');
+
+// Install signal handler to do a clean shutdown
+process.on('SIGINT', () => {
+    setImmediate(() => {
+        // Invokes finalizer after pending I/O operations complete
+        lcd.finalize( () => { process.exit(0) });
+    }
+});
+
+async.series([
+    (next) => { lcd.initialize(undefined, next); },
+    (next) => { lcd.printLine("  Hello World!  ", 0, next); },
+    (next) => { lcd.printLine("================", 1, next); },
+]);
+
+```
