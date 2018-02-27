@@ -11,9 +11,10 @@ It is ported to node.js and uses the [James Barrel's rpi-gpio](https://github.co
 
 The code is entirely asynchronous and best suited for JS project where you cannot block the main event loop. It extensively make use of the [Async](https://caolan.github.io/async/) library to ensure the correct sequence of operations. 
 
-### Getting Started
+## Getting Started
+```
+npm install async-hd44780
+```
+
+## Usage
 [TODO]
-
-
-
-### Usage
