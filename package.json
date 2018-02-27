@@ -1,0 +1,27 @@
+{
+  "name": "async-hd44780",
+  "version": "0.0.1",
+  "description": "Javascript asynchronous driver for LCD based on the Hitachi HD44780 controller",
+  "main": "async-hd44780.js",
+  "keywords:": [
+    "raspberry",
+    "pi",
+    "gpio",
+    "hd44780",
+    "LCD2004",
+    "lcd",
+    "raspberrypi"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fabriziobertocci/rpi-gpio.js.git"
+  },
+  "author": "Fabrizio Bertocci <fabriziobertocci@gmail.com>",
+  "license": "MIT",
+  "readmeFilename": "README.md",
+  "dependencies": {
+    "async": "1.x",
+    "debug": "2.x",
+    "rpi-gpio": "0.9.x"
+  }
+}
