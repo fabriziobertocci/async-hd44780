@@ -2,7 +2,7 @@
 An asynchronous javascript library to control a LCD based on the Hitachi HD44780 controller.
 
 The [Hitachi HD44780](https://en.wikipedia.org/wiki/Hitachi_HD44780_LCD_controller) is an alphanumeric dot matrix LCD controller developed by Hitachi that was (and still) commonly used in various alphanumeric displays like the following:
-* [Sunfounder LCD 2004 Module](https://www.sunfounder.com/lcd2004-module.html)
+* [Sunfounder LCD 2004 Module](https://www.sunfounder.com/lcd2004-module.html) ([Wiki page here](http://wiki.sunfounder.cc/index.php?title=LCD2004_Module))
 * [Adafruit standard 16x2 LCD](https://www.adafruit.com/product/181)
 * (and many others)
 
