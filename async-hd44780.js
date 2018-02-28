@@ -41,7 +41,7 @@ var debug = require('debug')('async-hd44780');
 /* {{{ General Constants
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
-const command = {
+const LCDCommand = {
     CLEARDISPLAY: 0x01,
     HOME: 0x02,
     ENTRYMODESET: 0x04,
@@ -52,14 +52,14 @@ const command = {
     SETDDRAMADDR: 0x80
 };
 
-const entryModeFlags = {
+const LCDEntryModeFlags = {
     ENTRYRIGHT: 0x00,
     ENTRYLEFT: 0x02,
     ENTRYSHIFTINCREMENT: 0x01,
     ENTRYSHIFTDECREMENT: 0x00
 };
 
-const controlFlags = {
+const LCDControlFlags = {
     DISPLAYON: 0x04,
     DISPLAYOFF: 0x00,
     CURSORON: 0x02,
@@ -68,7 +68,7 @@ const controlFlags = {
     BLINKOFF: 0x00
 };
 
-const functionSetFlags = {
+const LCDFunctionSetFlags = {
     EIGHTBITMODE: 0x10,
     FOURBITMODE: 0x00,
     TWOLINE: 0x08,
@@ -77,11 +77,11 @@ const functionSetFlags = {
     FIVEBYEIGHTDOTS: 0x00
 };
 
-const ROWOFFSETS = [0x00, 0x40, 0x14, 0x54];
+const LCDRowOffset = [0x00, 0x40, 0x14, 0x54];
 
-// Value for the RS line: LCD_DATA (True) = write to data, LCD_CMD (False) = write to Command
-const LCD_DATA = true;
-const LCD_CMD = false;
+// Value for the RS line: LCD_RS_DATA (True) = write to data, LCD_RS_CMD (False) = write to Command
+const LCD_RS_DATA = true;
+const LCD_RS_CMD  = false;
 
 
 // Default configuration (with default GPIO Mapping)
@@ -257,8 +257,8 @@ function initialize(config, callback) {
         return;
     }
     theConfig = initDefaultProperties(config, DEFAULT_CONFIG);
-    if (theConfig.rows > ROWOFFSETS.length) {
-        debug("Invalid row count: LCD controller only support up to %d rows", ROWOFFSETS.length);
+    if (theConfig.rows > LCDRowOffset.length) {
+        debug("Invalid row count: LCD controller only support up to %d rows", LCDRowOffset.length);
         if (callback) callback(new Error("Invalid parameter"));
         return;
     }
@@ -276,28 +276,28 @@ function initialize(config, callback) {
         (next) => { debug("Initializing LCD..."); next(null); },
 
         // Reset sequence
-        (next) => { writeByte(0x33, LCD_CMD, 0, 5, next); },
-        (next) => { writeByte(0x32, LCD_CMD, 0, 0, next); },
+        (next) => { writeByte(0x33, LCD_RS_CMD, 0, 5, next); },
+        (next) => { writeByte(0x32, LCD_RS_CMD, 0, 0, next); },
 
-        (next) => { writeByte(command.DISPLAYCONTROL | 
-                              controlFlags.DISPLAYON | 
-                              controlFlags.CURSOROFF | 
-                              controlFlags.BLINKOFF, LCD_CMD, 1, 0, next); },
+        (next) => { writeByte(LCDCommand.DISPLAYCONTROL | 
+                              LCDControlFlags.DISPLAYON | 
+                              LCDControlFlags.CURSOROFF | 
+                              LCDControlFlags.BLINKOFF, LCD_RS_CMD, 1, 0, next); },
 
-        (next) => { writeByte(command.FUNCTIONSET | 
-                              functionSetFlags.FOURBITMODE | 
-                              functionSetFlags.TWOLINE | 
-                              functionSetFlags.FIVEBYEIGHTDOTS, LCD_CMD, 1, 0, next); },
+        (next) => { writeByte(LCDCommand.FUNCTIONSET | 
+                              LCDFunctionSetFlags.FOURBITMODE | 
+                              LCDFunctionSetFlags.TWOLINE | 
+                              LCDFunctionSetFlags.FIVEBYEIGHTDOTS, LCD_RS_CMD, 1, 0, next); },
 
-        (next) => { writeByte(command.ENTRYMODESET | 
-                              entryModeFlags.ENTRYLEFT |
-                              entryModeFlags.ENTRYSHIFTDECREMENT, LCD_CMD, 1, 0, next); },
+        (next) => { writeByte(LCDCommand.ENTRYMODESET | 
+                              LCDEntryModeFlags.ENTRYLEFT |
+                              LCDEntryModeFlags.ENTRYSHIFTDECREMENT, LCD_RS_CMD, 1, 0, next); },
         (next) => { debug("LCD initialization completed successfully"); next(null); },
 
         /*
-        (next) => { writeByte(0x0C, LCD_CMD, 1, 0, next); }, // 001100 Display On,Cursor Off, Blink Off
-        (next) => { writeByte(0x06, LCD_CMD, 1, 0, next); }, // 000110 Cursor move direction
-        (next) => { writeByte(0x28, LCD_CMD, 1, 0, next); }, // 101000 Data length, number of lines, font size
+        (next) => { writeByte(0x0C, LCD_RS_CMD, 1, 0, next); }, // 001100 Display On,Cursor Off, Blink Off
+        (next) => { writeByte(0x06, LCD_RS_CMD, 1, 0, next); }, // 000110 Cursor move direction
+        (next) => { writeByte(0x28, LCD_RS_CMD, 1, 0, next); }, // 101000 Data length, number of lines, font size
         */
         clearScreen
     ], callback);
@@ -320,6 +320,7 @@ function finalize(callback) {
         // Clear only if initialized
         debug("Finalizing GPIO subsystem...");
         if (theCurrentTimeout) {
+            debug("!!!!!!!!!!!! Timer set, clearing!!!!!!!!!!!!!");
             clearTimeout(theCurrentTimeout);
         }
         clearScreen((err) => { theConfig = undefined; GPIO.destroy(callback) })
@@ -344,7 +345,7 @@ function clearScreen(callback) {
         return;
     }
     debug("Clearing LCD...");
-    writeByte(command.CLEARDISPLAY, LCD_CMD, 0, 0, callback);
+    writeByte(LCDCommand.CLEARDISPLAY, LCD_RS_CMD, 0, 0, callback);
 }
 
 // }}}
@@ -369,16 +370,17 @@ function printLine(message, line, callback) {
     }
     debug("Printing line '%s' on row=#%d", message, line);
     async.series([
-        (next) => { writeByte(command.SETDDRAMADDR | ROWOFFSETS[line], LCD_CMD, 1, 0, next); },
+        (next) => { writeByte(LCDCommand.SETDDRAMADDR | LCDRowOffset[line], LCD_RS_CMD, 1, 0, next); },
         (next) => { 
             async.timesSeries(message.length,
-                (i, cb) => { writeByte(message.charCodeAt(i), LCD_DATA, 1, 0, cb) },
+                (i, cb) => { writeByte(message.charCodeAt(i), LCD_RS_DATA, 1, 0, cb) },
                 next);
         }
     ], callback);
 }
 
 // }}}
+
 exports.initialize  = initialize;
 exports.finalize    = finalize;
 exports.printLine   = printLine;

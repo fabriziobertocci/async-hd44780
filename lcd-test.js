@@ -4,6 +4,8 @@ var async = require('async');
 var debug = require('debug')('lcd-test');
 var lcd = require('./async-hd44780.js');
 
+var theCurrentTimeout = undefined;
+
 function cleanupAndExit(exitCode) {
     lcd.finalize( (err) => { process.exit(exitCode || 0) });
 }
@@ -13,19 +15,26 @@ function cleanupAndExit(exitCode) {
 // Install signal handler to do a clean shutdown
 process.on('SIGINT', () => {
     debug("Stopping...");
+    if (theCurrentTimeout) clearTimeout(theCurrentTimeout);
     setImmediate(cleanupAndExit);
 });
 
 function printClockSec(prevSec) {
     var tNow = new Date();
     if (prevSec === tNow.getSeconds()) {
-        setTimeout(printClock, 100, tNow.getSeconds());
+        theCurrentTimeout = setTimeout(() => {
+            theCurrentTimeout = undefined;
+            printClockSec(tNow.getSeconds());
+        }, 100);
     } else {
         async.series([
             (next) => { lcd.printLine(tNow.toLocaleTimeString(), 0, next); },
             (next) => { lcd.printLine(tNow.toLocaleDateString(), 1, next); },
         ], (next) => {
-            setTimeout(printClockSec, 1000-tNow.getMilliseconds(), tNow.getSeconds())
+            theCurrentTimeout = setTimeout(() => {
+                theCurrentTimeout = undefined;
+                printClockSec(tNow.getSeconds());
+            }, 1000-tNow.getMilliseconds())
         });
     }
 }
@@ -38,7 +47,10 @@ function printClockHiRes(prevDate) {
             (next) => { lcd.printLine(tNow.toLocaleTimeString() + '.' + Math.round(tNow.getMilliseconds()/100), 0, next); },
             (next) => { lcd.printLine(tNow.toLocaleDateString(), 1, next); },
         ], (next) => {
-            setTimeout(printClockHiRes, 100-(tNow.getMilliseconds()%100), tNow)
+            theCurrentTimeout = setTimeout(() => {
+                theCurrentTimeout = undefined;
+                printClockHiRes(tNow);
+            }, 100-(tNow.getMilliseconds()%100))
         });
     }
 
@@ -50,7 +62,10 @@ function printClockHiRes(prevDate) {
     var prevTick = Math.round(prevDate.getMilliseconds()/100);
     var delta = Math.abs(tNow.getMilliseconds() - prevDate.getMilliseconds());
     if (delta < 100) {
-        setTimeout(printClock, 100-delta, tNow);
+        theCurrentTimeout = setTimeout(() => {
+            theCurrentTimeout = undefined;
+            printClock(tNow);
+        }, printClock, 100-delta);
         return;
     }
     printNow();
