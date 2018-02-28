@@ -37,3 +37,9 @@ async.series([
 ]);
 
 ```
+
+If you are having problems try enabling debugging by setting the environment variable DEBUG to a comma-separated list of modules to debug (or the special wildcard `*` to enable all module to print debug info). Example:
+
+```
+$ DEBUG=async-hd44780,rpi-gpio node ./lcd-test.js
+```
