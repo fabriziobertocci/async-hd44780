@@ -401,6 +401,18 @@ function finalize(clear, callback) {
 
 // }}}
 
+/* {{{ getConfig
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * Public
+ *
+ * Returns the current configuration or NULL if LCD is not initialized
+ */
+function getConfig() {
+    return theConfig;
+}
+
+// }}}
+
 /* {{{ clearScreen
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Public
@@ -479,5 +491,7 @@ function printLine(message, line, callback) {
 // Exported functions
 exports.initialize  = initialize;
 exports.finalize    = finalize;
+exports.getConfig   = getConfig;
+
 exports.clearScreen = clearScreen;
 exports.printLine   = printLine;
