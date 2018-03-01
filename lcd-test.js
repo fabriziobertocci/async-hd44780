@@ -6,17 +6,14 @@ var lcd = require('./async-hd44780.js');
 
 var theCurrentTimeout = undefined;
 
-function cleanupAndExit(exitCode) {
-    lcd.finalize( (err) => { process.exit(exitCode || 0) });
-}
-
-
 
 // Install signal handler to do a clean shutdown
 process.on('SIGINT', () => {
     debug("Stopping...");
     if (theCurrentTimeout) clearTimeout(theCurrentTimeout);
-    setImmediate(cleanupAndExit);
+    lcd.finalize(true, (err) => { 
+        process.exit(0);
+    });
 });
 
 function printClockSec(prevSec) {
@@ -44,7 +41,8 @@ function printClockHiRes(prevDate) {
 
     function printNow() {
         async.series([
-            (next) => { lcd.printLine(tNow.toLocaleTimeString() + '.' + Math.round(tNow.getMilliseconds()/100), 0, next); },
+            (next) => { lcd.printLine(tNow.toLocaleTimeString() + 
+                                      '.' + Math.round(tNow.getMilliseconds()/100), 0, next); },
             (next) => { lcd.printLine(tNow.toLocaleDateString(), 1, next); },
         ], (next) => {
             theCurrentTimeout = setTimeout(() => {

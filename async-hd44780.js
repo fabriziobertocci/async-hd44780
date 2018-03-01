@@ -98,13 +98,36 @@ const DEFAULT_CONFIG = {
 }
 // }}}
 
+/* {{{ Global Variables
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ */
+// This global object contains the current pinout and LCD geometry. Set 
+// by the initalize() function. It is set to undefined after a shutdown.
 var theConfig = undefined;
 
-// When finalize() is called, we need to cancel all the current timers,
-// otherwise if they will be executed after finalize complete, they will
-// find the system uninitialized.
-var theCurrentTimeout = undefined;
+// This boolean is set to TRUE when a long operation (i.e. printLine) begin 
+// and cleared to FALSE when it terminates. Allow to asynchronously
+// shutdown the system cleanly avoiding race conditions (i.e. clearing
+// theConfig object right in the middle of a sequence of writeByte() calls)
+var thePendingCmd = false;          
 
+// When there is a pending command and finalize() is called asynchronously,
+// a shutdown cannot be performed until the long operation completes. Use
+// theFinalize to control the type of shutdown operation (normal vs.
+// clearScreen). theFinalizeCallback stores the callback to perform AFTER 
+// the shutdown completes.
+const FINALIZE_NONE = 0;            // No finalize after a long command
+const FINALIZE_NORMAL = 1;          // Shutdown after the long command
+const FINALIZE_CLEARSCREEN = 2;     // Clear screen and shutdown after the long command
+
+var theFinalize = FINALIZE_NONE;
+var theFinalizeCallback = null;
+
+// }}}
+
+/*******************************************************************************
+ * PRIVATE FUNCTIONS
+ ******************************************************************************/
 /* {{{ initDefaultProperties
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Helper for initializing the configuration properties of a Javascript object.
@@ -149,6 +172,27 @@ function initDefaultProperties(props, def) {
 
 // }}}
 
+/* {{{ shutdown
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * Internal function
+ *
+ */
+function shutdown(clear, callback) {
+    function doShutdown() {
+        theConfig = undefined;
+        debug("Finalizing GPIO subsystem...");
+        GPIO.destroy(callback);
+    }
+
+    if (clear) {
+        clearScreen(doShutdown);
+    } else {
+        doShutdown();
+    }
+}
+
+// }}}
+
 /* {{{ delayedWrite
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Internal function
@@ -158,8 +202,7 @@ function initDefaultProperties(props, def) {
  * there are no errors).
  */
 function delayedWrite(delay, pin, value, callback) {
-    theCurrentTimeout = setTimeout( () => {
-        theCurrentTimeout = undefined;
+    setTimeout( () => {
         GPIO.write(pin, value, callback);
     }, delay);
 }
@@ -181,9 +224,8 @@ function toggleEnable(callback) {
         (next) => { GPIO.write(theConfig.pin_e, false, next); },
         (next) => { delayedWrite(1, theConfig.pin_e, true, next); },
         (next) => { delayedWrite(1, theConfig.pin_e, false, next); },
-        (next) => { theCurrentTimeout = setTimeout(next, 1, null); }
+        (next) => { setTimeout(next, 1, null); }
     ], () => {
-        theCurrentTimeout = null;
         if (callback) callback(null);
     });
 }
@@ -216,10 +258,7 @@ function writeByte(bits, mode, writeWait, initWait, callback) {
         (next) => { writeNibble(bits >> 4, next); },
         (next) => { toggleEnable(next); },
         (next) => { if (initWait) {
-                        theCurrentTimeout = setTimeout(() => { 
-                            theCurrentTimeout = null; 
-                            next(null)
-                        }, initWait); 
+                        setTimeout(next, initWait);
                     } else {
                         next(null)
                     }
@@ -231,6 +270,23 @@ function writeByte(bits, mode, writeWait, initWait, callback) {
 
 // }}}
 
+
+
+/*******************************************************************************
+ * PUBLIC FUNCTIONS
+ ******************************************************************************/
+/* NOTE: 
+ * All the public functions that perform operations on the LCD takes an optional
+ * callback that is invoked after the operation completes.
+ *
+ * If you call finalize() while another operation is running (i.e. right in the
+ * middle of a printLine(), now you have two callbacks:
+ *  - the callback of the long operation (i.e. the one provided to the printLine)
+ *  - the callback provided to the finalize() function
+ * In this case the callback of the finalize wins and will be called after the
+ * shutdown sequence is completed (after the long operation is done).
+ * The callback of the original long operation call will not be invoked.
+ */
 /* {{{ initialize
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Public
@@ -262,7 +318,10 @@ function initialize(config, callback) {
         if (callback) callback(new Error("Invalid parameter"));
         return;
     }
+    theFinalize = FINALIZE_NONE;
+    theFinalizeCallback = null;
     GPIO.setMode(GPIO.MODE_BCM);
+    thePendingCmd = true;
     async.series([
         (next) => { debug("Setting up GPIO using config: " + JSON.stringify(theConfig)); next(null); },
         (next) => { GPIO.setup(theConfig.pin_e,  GPIO.DIR_OUT, GPIO.EDGE_NONE, next) },
@@ -292,15 +351,20 @@ function initialize(config, callback) {
         (next) => { writeByte(LCDCommand.ENTRYMODESET | 
                               LCDEntryModeFlags.ENTRYLEFT |
                               LCDEntryModeFlags.ENTRYSHIFTDECREMENT, LCD_RS_CMD, 1, 0, next); },
-        (next) => { debug("LCD initialization completed successfully"); next(null); },
 
-        /*
-        (next) => { writeByte(0x0C, LCD_RS_CMD, 1, 0, next); }, // 001100 Display On,Cursor Off, Blink Off
-        (next) => { writeByte(0x06, LCD_RS_CMD, 1, 0, next); }, // 000110 Cursor move direction
-        (next) => { writeByte(0x28, LCD_RS_CMD, 1, 0, next); }, // 101000 Data length, number of lines, font size
-        */
-        clearScreen
-    ], callback);
+        // Clear screen - Do not call the clearScreen() function
+        (next) => { writeByte(LCDCommand.CLEARDISPLAY, LCD_RS_CMD, 1, 0, next); }, 
+        (next) => { debug("LCD initialization completed successfully"); next(null); }
+    ], (err) => {
+        thePendingCmd = false;
+        if (theFinalize) {
+            // Pending asynchronous shutdown requested?
+            theFinalize = FINALIZE_NONE;
+            shutdown(false, theFinalizeCallback);   // don't clear the screen here
+        } else {
+            callback(err);
+        }
+    });
 }
 
 // }}}
@@ -315,17 +379,23 @@ function initialize(config, callback) {
  * After calling finalize, if you want to use again the LCD you need to 
  * re-initialize it
  */
-function finalize(callback) {
-    if (theConfig) {
-        // Clear only if initialized
-        debug("Finalizing GPIO subsystem...");
-        if (theCurrentTimeout) {
-            debug("!!!!!!!!!!!! Timer set, clearing!!!!!!!!!!!!!");
-            clearTimeout(theCurrentTimeout);
+function finalize(clear, callback) {
+    if (theConfig && (theFinalize === FINALIZE_NONE)) {
+        if (thePendingCmd) {
+            // There is a (long) scheduled command, need to execute the real
+            // shutdown later, when the long operation completes
+            debug("LCD delayed shutdown (pending operation)");
+            theFinalize = (clearScreen ? FINALIZE_CLEARSCREEN : FINALIZE_NORMAL);
+            theFinalizeCallback = callback;
+        } else {
+            // There are no pending sequence of operations scheduled, can shutdown
+            // immediately
+            debug("LCD immediate shutdown");
+            shutdown(clear, callback);
         }
-        clearScreen((err) => { theConfig = undefined; GPIO.destroy(callback) })
     } else {
-        debug("LCD not initialized, nothing to finalize");
+        debug("LCD not initialized or already finalized, nothing to do");
+        callback(null);
     }
 }
 
@@ -345,7 +415,21 @@ function clearScreen(callback) {
         return;
     }
     debug("Clearing LCD...");
-    writeByte(LCDCommand.CLEARDISPLAY, LCD_RS_CMD, 0, 0, callback);
+    // A single writeByte operation is not atomic and can be interrupted
+    // by an asynchronous call to finalize()
+    // We need to protect it just like a call to printLine()
+    thePendingCmd = true;
+    writeByte(LCDCommand.CLEARDISPLAY, LCD_RS_CMD, 0, 0, (err) => {
+        thePendingCmd = false;
+        if (theFinalize) {
+            // Pending asynchronous shutdown requested?
+            var clear = (theFinalize === FINALIZE_CLEARSCREEN);
+            theFinalize = FINALIZE_NONE;
+            shutdown(clear, theFinalizeCallback);
+        } else {
+            callback(err);
+        }
+    });
 }
 
 // }}}
@@ -369,6 +453,7 @@ function printLine(message, line, callback) {
         message = message.substr(0, theConfig.cols);
     }
     debug("Printing line '%s' on row=#%d", message, line);
+    thePendingCmd = true;
     async.series([
         (next) => { writeByte(LCDCommand.SETDDRAMADDR | LCDRowOffset[line], LCD_RS_CMD, 1, 0, next); },
         (next) => { 
@@ -376,11 +461,23 @@ function printLine(message, line, callback) {
                 (i, cb) => { writeByte(message.charCodeAt(i), LCD_RS_DATA, 1, 0, cb) },
                 next);
         }
-    ], callback);
+    ], (err) => {
+        thePendingCmd = false;
+        if (theFinalize) {
+            // Pending asynchronous shutdown requested?
+            var clear = (theFinalize === FINALIZE_CLEARSCREEN);
+            theFinalize = FINALIZE_NONE;
+            shutdown(clear, theFinalizeCallback);
+        } else {
+            callback(err);
+        }
+    });
 }
 
 // }}}
 
+// Exported functions
 exports.initialize  = initialize;
 exports.finalize    = finalize;
+exports.clearScreen = clearScreen;
 exports.printLine   = printLine;
