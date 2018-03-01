@@ -1,7 +1,6 @@
 'use strict';
 
 var async = require('async');
-var debug = require('debug')('lcd-test');
 var lcd = require('./async-hd44780.js');
 
 var theCurrentTimeout = undefined;
@@ -9,7 +8,6 @@ var theCurrentTimeout = undefined;
 
 // Install signal handler to do a clean shutdown
 process.on('SIGINT', () => {
-    debug("Stopping...");
     if (theCurrentTimeout) clearTimeout(theCurrentTimeout);
     lcd.finalize(true, (err) => { 
         process.exit(0);
@@ -36,6 +34,7 @@ function printClockSec(prevSec) {
     }
 }
 
+/*
 function printClockHiRes(prevDate) {
     var tNow = new Date();
 
@@ -68,6 +67,7 @@ function printClockHiRes(prevDate) {
     }
     printNow();
 }
+*/
 
 /*
 async.series([
